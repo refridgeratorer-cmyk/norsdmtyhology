@@ -10,7 +10,7 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
 fs.mkdirSync(DATA_DIR, { recursive: true }); fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const db = new Database(path.join(DATA_DIR, 'collection.db'));
-const drive = require('./drive');
+const drive = require('./backup');
 db.pragma('journal_mode = WAL'); db.pragma('foreign_keys = ON');
 db.exec(`
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL COLLATE NOCASE, display_name TEXT NOT NULL,
