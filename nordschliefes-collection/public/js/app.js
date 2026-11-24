@@ -71,10 +71,38 @@ const pages = {
   async login() { if (S.me) return location.hash = '#/profile/' + S.me.username, '';
     return crumbs([['Profile']]) + `<h1>Enter the archive</h1><div class="grid"><form class="panel" id="lf"><h3>Log in</h3><label class="ui">Username</label><input name="username" autocomplete="username" required><label class="ui">Password</label><input name="password" type="password" autocomplete="current-password" required><div class="err"></div><button class="btn pri">Log in</button></form>
       <form class="panel" id="rf"><h3>Create reader account</h3><label class="ui">Username</label><input name="username" autocomplete="username" required><label class="ui">Display name</label><input name="display_name"><label class="ui">Password (8+ characters)</label><input name="password" type="password" autocomplete="new-password" required><div class="err"></div><button class="btn pri">Sign up</button></form></div>`; },
-  async profile(name) { const d = await api('/users/' + encodeURIComponent(name)), u = d.user, mine = S.me?.id === u.id;
-    return crumbs([['Profile'], [u.username]]) + `<div class="profile">${av(u, 110)}<div><h1>${esc(u.display_name)}</h1><div class="ui">@${esc(u.username)} <span class="badge ${u.role === 'writer' ? 'w' : ''}">${u.role === 'writer' ? '✦ WRITER' : 'READER'}</span></div></div></div>
-      <p class="prose">${esc(u.bio) || '<span class="empty">No bio yet.</span>'}</p><div class="stats"><div><b>${d.votes_given}</b>Votes given</div><div><b>${esc(u.created_at.slice(0, 10))}</b>Joined</div></div>
-      ${mine ? `<div class="acts"><button class="btn" id="edp">${ic('edit')}Edit profile</button>${isW() ? `<a class="btn pri" href="#/writer">${ic('settings')}Writer dashboard</a>` : ''}</div>` : ''}`; },
+
+  // ===== UPDATED PROFILE PAGE WITH BANNER =====
+  async profile(name) {
+    const d = await api('/users/' + encodeURIComponent(name)), u = d.user, mine = S.me?.id === u.id;
+    return crumbs([['Profile'], [u.username]]) +
+      (u.banner
+        ? `<a href="${esc(u.banner)}" target="_blank" rel="noopener" class="banner-link">
+             <img class="banner profile-banner" src="${esc(u.banner)}" alt="Profile banner">
+           </a>`
+        : '') +
+      `<div class="profile">
+        ${av(u, 110)}
+        <div>
+          <h1>${esc(u.display_name)}</h1>
+          <div class="ui">@${esc(u.username)} 
+            <span class="badge ${u.role === 'writer' ? 'w' : ''}">
+              ${u.role === 'writer' ? '✦ WRITER' : 'READER'}
+            </span>
+          </div>
+        </div>
+      </div>
+      <p class="prose">${esc(u.bio) || '<span class="empty">No bio yet.</span>'}</p>
+      <div class="stats">
+        <div><b>${d.votes_given}</b>Votes given</div>
+        <div><b>${esc(u.created_at.slice(0, 10))}</b>Joined</div>
+      </div>
+      ${mine ? `<div class="acts">
+        <button class="btn" id="edp">${ic('edit')}Edit profile</button>
+        ${isW() ? `<a class="btn pri" href="#/writer">${ic('settings')}Writer dashboard</a>` : ''}
+      </div>` : ''}`;
+  },
+
   async writer() { if (!isW()) throw new Error('Writer access only.'); const { entries } = await api('/entries');
     return crumbs([['Writer dashboard']]) + `<h1>✦ Writer dashboard</h1><div class="acts"><button class="btn pri" data-a="au">${ic('plus')}ADD UNIVERSE</button><button class="btn pri" data-a="ac">${ic('plus')}ADD CATEGORY</button><button class="btn pri" data-a="ae">${ic('plus')}ADD ENTRY</button></div>
       <h2>Current universes</h2><div class="panel">${S.uni.map(u => `<div class="row"><span class="t">${ic(u.icon)} ${esc(u.name)}</span><button class="btn" data-a="eu" data-id="${u.id}">EDIT</button><button class="btn dng" data-a="du" data-id="${u.id}">DELETE</button></div>`).join('')}</div>
@@ -127,9 +155,66 @@ const closeM = () => $('#modal-root').innerHTML = '';
 const opts = (arr, sel) => arr.map(([v, l]) => `<option value="${esc(v)}" ${v == sel ? 'selected' : ''}>${esc(l)}</option>`).join('');
 const iconOpts = sel => opts(ICONS.map(i => [i, i]), sel);
 const slugify = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-function profileForm() { const r = modal(`<h2>Edit profile</h2><form id="pf"><label>Display name</label><input name="display_name" maxlength="40" value="${esc(S.me.display_name)}"><label>Bio</label><textarea name="bio" rows="4" maxlength="500">${esc(S.me.bio)}</textarea><label>Profile picture (PNG, JPG, WEBP, GIF - max 3 MB)</label><input type="file" name="avatar" accept="image/png,image/jpeg,image/webp,image/gif"><div class="err"></div><div class="btns"><button type="button" class="btn" data-x>CANCEL</button><button class="btn pri">SAVE</button></div></form>`);
-  $('#pf').addEventListener('submit', async ev => { ev.preventDefault(); const fd = new FormData(ev.target); if (!fd.get('avatar').size) fd.delete('avatar');
-    try { S.me = (await api('/me', { method: 'PUT', body: fd })).user; closeM(); nav(); route(); toast('Profile saved.'); } catch (e) { ev.target.querySelector('.err').textContent = e.message; } }); }
+
+// ===== UPDATED PROFILE FORM WITH BANNER + REMOVE =====
+function profileForm() {
+  const hasBanner = !!S.me.banner;
+
+  const r = modal(`
+    <h2>Edit profile</h2>
+    <form id="pf">
+      <label>Display name</label>
+      <input name="display_name" maxlength="40" value="${esc(S.me.display_name)}">
+
+      <label>Bio</label>
+      <textarea name="bio" rows="4" maxlength="500">${esc(S.me.bio || '')}</textarea>
+
+      <label>Profile picture (PNG, JPG, WEBP, GIF – max 3 MB)</label>
+      <input type="file" name="avatar" accept="image/png,image/jpeg,image/webp,image/gif">
+      <small class="ui">${S.me.profile_picture ? 'Current picture kept unless replaced.' : ''}</small>
+
+      <label>Profile banner (PNG, JPG, WEBP, GIF – max 3 MB)</label>
+      <input type="file" name="banner" accept="image/png,image/jpeg,image/webp,image/gif">
+      <small class="ui">
+        ${hasBanner 
+          ? 'Current banner kept unless replaced. Recommended: 1600×400 or wider.' 
+          : 'Recommended size: 1600×400 or wider'}
+      </small>
+
+      ${hasBanner ? `
+        <label class="remove-banner">
+          <input type="checkbox" name="remove_banner" value="1">
+          Remove current banner
+        </label>
+      ` : ''}
+
+      <div class="err"></div>
+      <div class="btns">
+        <button type="button" class="btn" data-x>CANCEL</button>
+        <button class="btn pri">SAVE</button>
+      </div>
+    </form>
+  `);
+
+  $('#pf').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+
+    // Only send files if the user actually selected one
+    if (!fd.get('avatar')?.size) fd.delete('avatar');
+    if (!fd.get('banner')?.size) fd.delete('banner');
+
+    try {
+      S.me = (await api('/me', { method: 'PUT', body: fd })).user;
+      closeM();
+      nav();
+      route();
+      toast('Profile saved.');
+    } catch (e) {
+      ev.target.querySelector('.err').textContent = e.message;
+    }
+  });
+}
 
 async function form(a, id, pre) { // a: au/ac/ae (add) or eu/ec/ee (edit)
   const kind = { u: 'universes', c: 'categories', e: 'entries' }[a[1]], edit = a[0] === 'e'; let d = pre ? { ...pre } : {}, entries = [];
