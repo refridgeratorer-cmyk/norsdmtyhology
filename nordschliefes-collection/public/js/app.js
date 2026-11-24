@@ -3,6 +3,7 @@ const S = { me: null, uni: [] }, $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ICONS = 'home book map globe eye shield sword crown users archive file-text clock calendar search settings plus edit trash user upload flag folder skull flame star scroll landmark compass anchor key lock radio tv alert-triangle ghost music heart'.split(' ');
 const THEMES = [['meridian', 'Meridian (white / classified)'], ['aurelis', 'Aurelis (red / military)'], ['afterhours', 'After Hours (purple / chaotic)'], ['azure', 'Azure (blue)'], ['verdant', 'Verdant (green)']];
+const BORDERS = [['none', 'None'], ['solid', 'Solid'], ['dashed', 'Dashed'], ['double', 'Double'], ['glow', 'Glow']];
 const ic = (n, c = '') => `<i data-lucide="${esc(n)}" class="${c}"></i>`;
 const paint = () => window.lucide && lucide.createIcons();
 function toast(m) { const t = $('#toast'), d = document.createElement('div'); d.textContent = m; t.append(d); setTimeout(() => d.remove(), 3000); }
@@ -71,10 +72,23 @@ const pages = {
   async login() { if (S.me) return location.hash = '#/profile/' + S.me.username, '';
     return crumbs([['Profile']]) + `<h1>Enter the archive</h1><div class="grid"><form class="panel" id="lf"><h3>Log in</h3><label class="ui">Username</label><input name="username" autocomplete="username" required><label class="ui">Password</label><input name="password" type="password" autocomplete="current-password" required><div class="err"></div><button class="btn pri">Log in</button></form>
       <form class="panel" id="rf"><h3>Create reader account</h3><label class="ui">Username</label><input name="username" autocomplete="username" required><label class="ui">Display name</label><input name="display_name"><label class="ui">Password (8+ characters)</label><input name="password" type="password" autocomplete="new-password" required><div class="err"></div><button class="btn pri">Sign up</button></form></div>`; },
-  async profile(name) { const d = await api('/users/' + encodeURIComponent(name)), u = d.user, mine = S.me?.id === u.id;
-    return crumbs([['Profile'], [u.username]]) + `<div class="profile">${av(u, 110)}<div><h1>${esc(u.display_name)}</h1><div class="ui">@${esc(u.username)} <span class="badge ${u.role === 'writer' ? 'w' : ''}">${u.role === 'writer' ? '✦ WRITER' : 'READER'}</span></div></div></div>
-      <p class="prose">${esc(u.bio) || '<span class="empty">No bio yet.</span>'}</p><div class="stats"><div><b>${d.votes_given}</b>Votes given</div><div><b>${esc(u.created_at.slice(0, 10))}</b>Joined</div></div>
-      ${mine ? `<div class="acts"><button class="btn" id="edp">${ic('edit')}Edit profile</button>${isW() ? `<a class="btn pri" href="#/writer">${ic('settings')}Writer dashboard</a>` : ''}</div>` : ''}`; },
+  async profile(name) {
+    const d = await api('/users/' + encodeURIComponent(name)), u = d.user, mine = S.me?.id === u.id;
+    const th = u.accent_theme || 'meridian', br = u.border_style || 'none';
+    const bannerHtml = u.banner_image
+      ? `<img class="pbanner" src="${esc(u.banner_image)}" alt="">`
+      : `<div class="pbanner empty"></div>`;
+    return crumbs([['Profile'], [u.username]]) + `
+      <section class="pwrap b-${esc(br)}" data-theme="${esc(th)}">
+        ${bannerHtml}
+        <div class="pbody">
+          <div class="profile">${av(u, 110)}<div><h1>${esc(u.display_name)}</h1><div class="ui">@${esc(u.username)} <span class="badge ${u.role === 'writer' ? 'w' : ''}">${u.role === 'writer' ? '✦ WRITER' : 'READER'}</span></div></div></div>
+          <p class="prose">${esc(u.bio) || '<span class="empty">No bio yet.</span>'}</p>
+          <div class="stats"><div><b>${d.votes_given}</b>Votes given</div><div><b>${esc(u.created_at.slice(0, 10))}</b>Joined</div></div>
+          ${mine ? `<div class="acts"><button class="btn" id="edp">${ic('edit')}Edit profile</button>${isW() ? `<a class="btn pri" href="#/writer">${ic('settings')}Writer dashboard</a>` : ''}</div>` : ''}
+        </div>
+      </section>`;
+  },
   async writer() { if (!isW()) throw new Error('Writer access only.'); const { entries } = await api('/entries');
     return crumbs([['Writer dashboard']]) + `<h1>✦ Writer dashboard</h1><div class="acts"><button class="btn pri" data-a="au">${ic('plus')}ADD UNIVERSE</button><button class="btn pri" data-a="ac">${ic('plus')}ADD CATEGORY</button><button class="btn pri" data-a="ae">${ic('plus')}ADD ENTRY</button></div>
       <h2>Current universes</h2><div class="panel">${S.uni.map(u => `<div class="row"><span class="t">${ic(u.icon)} ${esc(u.name)}</span><button class="btn" data-a="eu" data-id="${u.id}">EDIT</button><button class="btn dng" data-a="du" data-id="${u.id}">DELETE</button></div>`).join('')}</div>
@@ -127,9 +141,26 @@ const closeM = () => $('#modal-root').innerHTML = '';
 const opts = (arr, sel) => arr.map(([v, l]) => `<option value="${esc(v)}" ${v == sel ? 'selected' : ''}>${esc(l)}</option>`).join('');
 const iconOpts = sel => opts(ICONS.map(i => [i, i]), sel);
 const slugify = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-function profileForm() { const r = modal(`<h2>Edit profile</h2><form id="pf"><label>Display name</label><input name="display_name" maxlength="40" value="${esc(S.me.display_name)}"><label>Bio</label><textarea name="bio" rows="4" maxlength="500">${esc(S.me.bio)}</textarea><label>Profile picture (PNG, JPG, WEBP, GIF - max 3 MB)</label><input type="file" name="avatar" accept="image/png,image/jpeg,image/webp,image/gif"><div class="err"></div><div class="btns"><button type="button" class="btn" data-x>CANCEL</button><button class="btn pri">SAVE</button></div></form>`);
-  $('#pf').addEventListener('submit', async ev => { ev.preventDefault(); const fd = new FormData(ev.target); if (!fd.get('avatar').size) fd.delete('avatar');
-    try { S.me = (await api('/me', { method: 'PUT', body: fd })).user; closeM(); nav(); route(); toast('Profile saved.'); } catch (e) { ev.target.querySelector('.err').textContent = e.message; } }); }
+
+function profileForm() {
+  const r = modal(`<h2>Edit profile</h2><form id="pf">
+    <label>Display name</label><input name="display_name" maxlength="40" value="${esc(S.me.display_name)}">
+    <label>Bio</label><textarea name="bio" rows="4" maxlength="500">${esc(S.me.bio)}</textarea>
+    <label>Color theme</label><select name="accent_theme">${opts(THEMES, S.me.accent_theme || 'meridian')}</select>
+    <label>Border style</label><select name="border_style">${opts(BORDERS, S.me.border_style || 'none')}</select>
+    <label>Profile picture (PNG, JPG, WEBP, GIF - max 3 MB)</label><input type="file" name="avatar" accept="image/png,image/jpeg,image/webp,image/gif">
+    <label>Banner image (PNG, JPG, WEBP, GIF - max 3 MB)</label><input type="file" name="banner" accept="image/png,image/jpeg,image/webp,image/gif">
+    <div class="err"></div><div class="btns"><button type="button" class="btn" data-x>CANCEL</button><button class="btn pri">SAVE</button></div>
+  </form>`);
+  $('#pf').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const fd = new FormData(ev.target);
+    if (!fd.get('avatar')?.size) fd.delete('avatar');
+    if (!fd.get('banner')?.size) fd.delete('banner');
+    try { S.me = (await api('/me', { method: 'PUT', body: fd })).user; closeM(); nav(); route(); toast('Profile saved.'); }
+    catch (e) { ev.target.querySelector('.err').textContent = e.message; }
+  });
+}
 
 async function form(a, id, pre) { // a: au/ac/ae (add) or eu/ec/ee (edit)
   const kind = { u: 'universes', c: 'categories', e: 'entries' }[a[1]], edit = a[0] === 'e'; let d = pre ? { ...pre } : {}, entries = [];
