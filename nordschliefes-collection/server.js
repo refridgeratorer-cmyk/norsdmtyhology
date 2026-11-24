@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS entries(id INTEGER PRIMARY KEY, category_id INTEGER N
   status TEXT NOT NULL DEFAULT 'published', created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(category_id, slug));
 CREATE TABLE IF NOT EXISTS votes(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE, vote INTEGER NOT NULL CHECK(vote IN (1,-1)), UNIQUE(user_id, entry_id));
+CREATE TABLE IF NOT EXISTS posts(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
 
 drive.init({ db, dataDir: DATA_DIR, uploadDir: UPLOAD_DIR });
@@ -103,6 +105,27 @@ app.get('/api/users/:username', (req, res) => {
   const u = db.prepare('SELECT * FROM users WHERE username=?').get(req.params.username); if (!u) return bad(res, 'Profile not found.', 404);
   res.json({ user: safeUser(u), votes_given: db.prepare('SELECT COUNT(*) n FROM votes WHERE user_id=?').get(u.id).n }); });
 app.post('/api/upload', needWriter, up('image'), (req, res) => req.file ? res.json({ url: '/uploads/' + req.file.filename }) : bad(res, 'No image received.'));
+
+// ---- Free Talk ----
+app.get('/api/posts', (req, res) => {
+  const posts = db.prepare(`SELECT p.id, p.user_id, p.body, p.created_at, u.username, u.display_name, u.profile_picture, u.role
+    FROM posts p JOIN users u ON u.id = p.user_id ORDER BY p.id DESC LIMIT 100`).all();
+  res.json({ posts });
+});
+app.post('/api/posts', needUser, (req, res) => {
+  const body = str(req.body.body, 1000);
+  if (!body) return bad(res, 'Post cannot be empty.');
+  const id = db.prepare('INSERT INTO posts(user_id, body) VALUES(?, ?)').run(req.user.id, body).lastInsertRowid;
+  res.json({ id });
+});
+app.delete('/api/posts/:id', needUser, (req, res) => {
+  const id = Number(req.params.id);
+  const post = db.prepare('SELECT * FROM posts WHERE id=?').get(id);
+  if (!post) return bad(res, 'Post not found.', 404);
+  if (!isW(req) && post.user_id !== req.user.id) return bad(res, 'Not allowed.', 403);
+  db.prepare('DELETE FROM posts WHERE id=?').run(id);
+  res.json({ ok: true });
+});
 
 // ---- Reading lore ----
 const vis = req => isW(req) ? '' : " AND e.status='published'";
