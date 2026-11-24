@@ -14,7 +14,8 @@ const drive = require('./backup');
 db.pragma('journal_mode = WAL'); db.pragma('foreign_keys = ON');
 db.exec(`
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL COLLATE NOCASE, display_name TEXT NOT NULL,
-  password_hash TEXT NOT NULL, profile_picture TEXT, bio TEXT DEFAULT '', role TEXT NOT NULL DEFAULT 'reader', created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+  password_hash TEXT NOT NULL, profile_picture TEXT, banner_image TEXT, border_style TEXT NOT NULL DEFAULT 'none',
+  accent_theme TEXT NOT NULL DEFAULT 'meridian', bio TEXT DEFAULT '', role TEXT NOT NULL DEFAULT 'reader', created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS universes(id INTEGER PRIMARY KEY, name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL, description TEXT DEFAULT '', content TEXT DEFAULT '',
   icon TEXT DEFAULT 'globe', theme TEXT DEFAULT 'meridian', image TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -28,6 +29,11 @@ CREATE TABLE IF NOT EXISTS votes(id INTEGER PRIMARY KEY, user_id INTEGER NOT NUL
 CREATE TABLE IF NOT EXISTS posts(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   body TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
+
+const userCols = new Set(db.prepare('PRAGMA table_info(users)').all().map(c => c.name));
+if (!userCols.has('banner_image')) db.exec('ALTER TABLE users ADD COLUMN banner_image TEXT');
+if (!userCols.has('border_style')) db.exec("ALTER TABLE users ADD COLUMN border_style TEXT NOT NULL DEFAULT 'none'");
+if (!userCols.has('accent_theme')) db.exec("ALTER TABLE users ADD COLUMN accent_theme TEXT NOT NULL DEFAULT 'meridian'");
 
 drive.init({ db, dataDir: DATA_DIR, uploadDir: UPLOAD_DIR });
 
@@ -54,9 +60,11 @@ if (!db.prepare('SELECT 1 FROM universes').get()) {
 const app = express(); app.set('trust proxy', 1); app.disable('x-powered-by');
 app.use(express.json({ limit: '2mb' })); app.use(cookieParser());
 const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/, ICON = /^[a-z0-9-]{1,40}$/, THEMES = ['meridian', 'aurelis', 'afterhours', 'azure', 'verdant'];
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/, ICON = /^[a-z0-9-]{1,40}$/, THEMES = ['meridian', 'aurelis', 'afterhours', 'azure', 'verdant'], BORDERS = ['none', 'solid', 'dashed', 'double', 'glow'];
 const str = (v, max) => typeof v === 'string' ? v.trim().slice(0, max) : '';
-const safeUser = u => u && { id: u.id, username: u.username, display_name: u.display_name, profile_picture: u.profile_picture, bio: u.bio, role: u.role, created_at: u.created_at };
+const safeUser = u => u && { id: u.id, username: u.username, display_name: u.display_name, profile_picture: u.profile_picture,
+  banner_image: u.banner_image, border_style: u.border_style || 'none', accent_theme: u.accent_theme || 'meridian',
+  bio: u.bio, role: u.role, created_at: u.created_at };
 app.use('/api', (req, res, next) => { if (req.method !== 'GET') res.on('finish', () => { if (res.statusCode < 400) drive.schedule(); }); next(); }); // back up to Drive after any successful change
 app.use((req, res, next) => { // session -> req.user (role always comes from the database)
   const t = req.cookies.sid; req.user = null;
@@ -74,9 +82,10 @@ function limited(req) { const k = req.ip, now = Date.now(), a = (tries.get(k) ||
 
 // ---- Uploads ----
 const EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif' };
-const upload = multer({ limits: { fileSize: 3 * 1024 * 1024, files: 1 },
+const upload = multer({ limits: { fileSize: 3 * 1024 * 1024, files: 2 },
   storage: multer.diskStorage({ destination: UPLOAD_DIR, filename: (q, f, cb) => cb(null, crypto.randomBytes(16).toString('hex') + EXT[f.mimetype]) }),
   fileFilter: (q, f, cb) => EXT[f.mimetype] ? cb(null, true) : cb(new Error('Only PNG, JPG, WEBP or GIF images are allowed.')) });
+const upFields = fields => (req, res, next) => upload.fields(fields)(req, res, err => err ? bad(res, err.code === 'LIMIT_FILE_SIZE' ? 'Image is too large (max 3 MB).' : err.message) : next());
 const up = field => (req, res, next) => upload.single(field)(req, res, err => err ? bad(res, err.code === 'LIMIT_FILE_SIZE' ? 'Image is too large (max 3 MB).' : err.message) : next());
 app.use('/uploads', express.static(UPLOAD_DIR, { setHeaders: r => r.setHeader('X-Content-Type-Options', 'nosniff') }));
 
@@ -96,10 +105,15 @@ app.post('/api/login', (req, res) => {
   startSession(res, u.id); res.json({ user: safeUser(u) }); });
 app.post('/api/logout', (req, res) => { if (req.cookies.sid) db.prepare('DELETE FROM sessions WHERE token=?').run(req.cookies.sid); res.clearCookie('sid'); res.json({ ok: true }); });
 app.get('/api/me', (req, res) => res.json({ user: safeUser(req.user) }));
-app.put('/api/me', needUser, up('avatar'), (req, res) => {
+app.put('/api/me', needUser, upFields([{ name: 'avatar', maxCount: 1 }, { name: 'banner', maxCount: 1 }]), (req, res) => {
   const dn = str(req.body.display_name, 40) || req.user.display_name, bio = str(req.body.bio, 500);
-  const pic = req.file ? '/uploads/' + req.file.filename : req.user.profile_picture;
-  db.prepare('UPDATE users SET display_name=?, bio=?, profile_picture=? WHERE id=?').run(dn, bio, pic, req.user.id);
+  const border = BORDERS.includes(req.body.border_style) ? req.body.border_style : (req.user.border_style || 'none');
+  const theme = THEMES.includes(req.body.accent_theme) ? req.body.accent_theme : (req.user.accent_theme || 'meridian');
+  const avFile = req.files?.avatar?.[0], bnFile = req.files?.banner?.[0];
+  const pic = avFile ? '/uploads/' + avFile.filename : req.user.profile_picture;
+  const ban = bnFile ? '/uploads/' + bnFile.filename : req.user.banner_image;
+  db.prepare('UPDATE users SET display_name=?, bio=?, profile_picture=?, banner_image=?, border_style=?, accent_theme=? WHERE id=?')
+    .run(dn, bio, pic, ban, border, theme, req.user.id);
   res.json({ user: safeUser(db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id)) }); });
 app.get('/api/users/:username', (req, res) => {
   const u = db.prepare('SELECT * FROM users WHERE username=?').get(req.params.username); if (!u) return bad(res, 'Profile not found.', 404);
