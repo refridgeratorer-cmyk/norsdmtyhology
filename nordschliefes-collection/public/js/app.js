@@ -35,7 +35,7 @@ function nav() {
   const m = S.me;
   $('#nav').innerHTML = `<div class="nav"><a class="brand" href="#/">NORDSCHLIEFE'S COLLECTION</a>
   <a class="i" href="#/">${ic('home')}<span>Home</span></a><a class="i" href="#/universes">${ic('globe')}<span>Universes</span></a>
-  <a class="i" href="#/about">${ic('book')}<span>About</span></a><a class="i" href="#/search">${ic('search')}<span>Search</span></a>
+  <a class="i" href="#/about">${ic('book')}<span>About</span></a><a class="i" href="#/talk">${ic('message-square')}<span>Talk</span></a><a class="i" href="#/members">${ic('users')}<span>Members</span></a><a class="i" href="#/search">${ic('search')}<span>Search</span></a>
   ${isW() ? `<a class="i" href="#/writer"><b class="wm">✦ WRITER MODE</b></a>` : ''}
   ${m ? `<a class="i" href="#/profile/${esc(m.username)}">${av(m)}<span>${esc(m.display_name)}</span></a><button class="btn" id="out">${ic('lock')}Log out</button>`
       : `<a class="i" href="#/login">${ic('user')}<span>Profile</span></a>`}</div>`;
@@ -51,6 +51,13 @@ const pages = {
     <div class="grid">${S.uni.map(uCard).join('')}</div>`; },
   async universes() { return crumbs([['Universes']]) + `<h1>Universes</h1><div class="grid">${S.uni.map(uCard).join('') || '<p class="empty">Nothing here yet.</p>'}</div>`; },
   async about() { return crumbs([['About']]) + `<h1>About</h1><div class="prose"><p>It's basically my brain in website form.</p><p>This collection holds universes, characters, lore, maps, stories, random ideas, and a healthy number of unfinished projects. Nothing here is final. It all grows when I do.</p><p>Make an account to vote on entries and get a profile of your own.</p></div>`; },
+  async talk() { const { posts } = await api('/posts');
+    return crumbs([['Free Talk']]) + `<h1>Free Talk</h1><p class="tag ui">Say hi, ask things, talk lore. Be decent.</p>` + (S.me
+      ? `<form class="panel" id="pf2"><textarea name="body" rows="3" maxlength="1000" placeholder="Say something…" required></textarea><div class="err"></div><button class="btn pri">${ic('send')}Post</button></form>`
+      : `<p class="panel"><a href="#/login">Log in</a> to post. Anyone can read.</p>`) +
+      (posts.map(p => `<div class="panel post"><a href="#/profile/${esc(p.username)}">${av(p, 40)}</a><div class="b"><a href="#/profile/${esc(p.username)}"><b>${esc(p.display_name)}</b></a> ${p.role === 'writer' ? '<span class="badge w">✦ WRITER</span>' : ''} <small>${esc(p.created_at.slice(0, 16))} UTC</small><p>${esc(p.body).replace(/\n/g, '<br>')}</p></div>${S.me && (isW() || S.me.id === p.user_id) ? `<button class="btn dng" data-del="${p.id}">Delete</button>` : ''}</div>`).join('') || '<p class="empty">No posts yet. Be first.</p>'); },
+  async members() { const { users } = await api('/users');
+    return crumbs([['Members']]) + `<h1>Members</h1><div class="grid">${users.map(u => `<a class="card" data-theme="meridian" href="#/profile/${esc(u.username)}"><div class="profile" style="margin:0">${av(u, 56)}<div><h3 style="margin:0">${esc(u.display_name)}</h3><small class="ui">@${esc(u.username)} · ${u.role === 'writer' ? '✦ WRITER' : 'READER'}</small></div></div></a>`).join('')}</div>`; },
   async universe(us) { const u = S.uni.find(x => x.slug === us); if (!u) throw new Error('Universe not found.'); document.body.dataset.theme = u.theme;
     return crumbs([[u.name]]) + `<h1>${esc(u.name)}</h1><div class="prose">${md(u.content || u.description)}</div>${addCat(u)}<div class="grid">${u.categories.map(c =>
       `<a class="card" data-theme="${esc(u.theme)}" href="#/u/${u.slug}/${esc(c.slug)}">${ic(c.icon, 'ic')}<h3>${esc(c.name)}</h3><p>${esc(c.description)}</p><div class="meta">${c.count} entries</div></a>`).join('') }</div>${u.categories.length ? '' : `<div class="panel empty-state"><h2>NO CATEGORIES YET</h2><p>This archive is currently empty.</p>${addCat(u)}</div>`}`; },
@@ -93,6 +100,8 @@ window.addEventListener('hashchange', route);
 
 function bind(name) {
   const A = $('#app');
+  if (name === 'talk') { const f = $('#pf2'); f?.addEventListener('submit', async ev => { ev.preventDefault(); try { await api('/posts', { method: 'POST', body: { body: f.body.value } }); route(); } catch (e) { f.querySelector('.err').textContent = e.message; } });
+    A.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if (!confirm('Delete this post?')) return; try { await api('/posts/' + b.dataset.del, { method: 'DELETE' }); route(); } catch (e) { toast(e.message); } }); }
   if (name === 'login') {
     for (const [id, url] of [['#lf', '/login'], ['#rf', '/register']]) $(id).addEventListener('submit', async ev => { ev.preventDefault(); const f = ev.target;
       try { const r = await api(url, { method: 'POST', body: Object.fromEntries(new FormData(f)) }); S.me = r.user; await loadUni(); nav(); location.hash = '#/profile/' + r.user.username; toast('Welcome, ' + r.user.display_name + '.'); }
