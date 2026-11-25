@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS votes(id INTEGER PRIMARY KEY, user_id INTEGER NOT NUL
 CREATE TABLE IF NOT EXISTS posts(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   body TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
+db.exec('DELETE FROM sessions;');
 
 const userCols = new Set(db.prepare('PRAGMA table_info(users)').all().map(c => c.name));
 if (!userCols.has('banner_image')) db.exec('ALTER TABLE users ADD COLUMN banner_image TEXT');
